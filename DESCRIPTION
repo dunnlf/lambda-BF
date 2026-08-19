@@ -1,4 +1,4 @@
-Package: pagelbayes
+Package: lambdaBF
 Type: Package
 Title: Evidence for Pagel's lambda via the Bayes factor
 Version: 0.1.0
