@@ -26,11 +26,11 @@
 #' @examples
 #' trees <- ape::rmtree(5, 100)
 #' x <- phytools::fastBM(trees[[1]])
-#' pagelBF(trees, x)
+#' lambdaBF(trees, x)
 #' 
 #' 
 #' @export
-pagelBF <- function(trees, x, N_samples=100, return_trace=F,
+lambdaBF <- function(trees, x, N_samples=100, return_trace=F,
                                 importance_sampling=T) {
   
   if (class(trees) == 'phylo'){  # if single tree provided wrap in list
