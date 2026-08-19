@@ -2,4 +2,4 @@
 
 export(get_pagel_cov)
 export(get_pagel_lhood)
-export(pagelBF)
+export(lambdaBF)
