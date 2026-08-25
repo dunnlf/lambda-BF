@@ -30,136 +30,127 @@
 #' 
 #' 
 #' @export
-lambdaBF <- function(trees, x, N_samples=100, return_trace=F,
-                                importance_sampling=T) {
-  
-  if (class(trees) == 'phylo'){  # if single tree provided wrap in list
-    trees <- list(tree=trees)
-  }
-  
-  if (is.null(names(x))){
-    warning('Tip data not named, assuming same order as tree tips')
-    names(x) <- trees[[1]]$tip.label
-  }
+lambdaBF <- function (trees, x, N_samples = 100, return_trace = F, importance_sampling = T) {
+    if (class(trees) == "phylo") {
+        trees <- list(tree = trees)
+    }
+    if (is.null(names(x))) {
+        warning("Tip data not named, assuming same order as tree tips")
+        names(x) <- trees[[1]]$tip.label
+    }
+    num_dropped_species <- c()
+    dropped_species <- list()
+    pagel_samples <- c()
+    null_samples <- c()
+    bf_samples <- c()
+    trace <- c()
+    pagel_trace <- list()
+    null_trace <- list()
+    sampling_methods <- c()
 
-  # species mismatch debugging
-  num_dropped_species <- c()
-  dropped_species <- list()
-  
-  # samples per tree
-  pagel_samples <- c()
-  null_samples <- c()
-  bf_samples <- c()
-  
-  # traces
-  trace <- c()
-  pagel_trace <- list()
-  null_trace <- list()
-  
-  # sampling methods, used for debugging Laplace approximate failures
-  sampling_methods <- c()
-  
-  for (t in trees) {
-    # check name mismatches and prune if necessary
-    check_t <- geiger::name.check(t, x, data.names = names(x))
+    # for log-sum-exp trick
+    exponent_list <- c()
+    pagel_logs <- list()
+    null_logs <- c()
+
+    for (t in trees) {
+        check_t <- geiger::name.check(t, x, data.names = names(x))
+        if (length(check_t) != 1) {
+            t_i <- drop.tip(t, check_t$tree_not_data)
+            x_i <- x[setdiff(names(x), check_t$data_not_tree)]
+
+            num_dropped_species <- c(num_dropped_species, length(check_t$data_not_tree) + 
+                length(check_t$tree_not_data))
+            dropped_species[[length(dropped_species) + 1]] <- c(check_t$data_not_tree, 
+                check_t$tree_not_data)
+        }
+        else {
+            x_i <- x
+            t_i <- t
+            num_dropped_species <- c(num_dropped_species, 0)
+            dropped_species[[length(dropped_species) + 1]] <- NULL
+        }
+
+        log_lhood_func <- function(z) {
+            get_pagel_lhood(z, t_i, x_i, logarithm = T)
+        }
+
+        lam_0 <- optimise(log_lhood_func, c(0, 1), maximum = T)$maximum
+        logL_2nd_div <- abs(numDeriv::hessian(log_lhood_func, 
+            lam_0))
+        lap_approx <- function(z) {
+            dnorm(z, mean = lam_0, sd = 1/sqrt(logL_2nd_div))
+        }
+        if (is.nan(logL_2nd_div) | lam_0 > 0.99 | lam_0 < 0.01 | 
+            (!importance_sampling)) {
+            lam_samps <- runif(N_samples)
+            log_num <- c()
+            log_den <- c()
+            for (lam in lam_samps) {
+                log_num <- c(log_num, log_lhood_func(lam))
+                log_den <- c(log_den, 0)
+            }
+            sampling_methods <- c(sampling_methods, "unif")
+        }
+        else {
+            lam_samps <- truncnorm::rtruncnorm(N_samples, a = 0, 
+                b = 1, mean = lam_0, sd = 1/sqrt(logL_2nd_div))
+            log_num <- c()
+            log_den <- c()
+            for (lam in lam_samps) {
+                log_num <- c(log_num, log_lhood_func(lam))
+                log_den <- c(log_den, log(lap_approx(lam)))
+            }
+            sampling_methods <- c(sampling_methods, "imp")
+        }
+        # apply same exponent trick to numerator and denominator
+        # store exponents and logs to apply log-sum-exp to final result also
+        lhood_null_i <- get_pagel_lhood(0, t_i, x_i, logarithm = T)[1]
+        ponent = max(c(log_num - log_den, lhood_null_i))
+
+        exp_terms = exp(log_num - log_den - ponent)
+        exp_null = exp(lhood_null_i - ponent)
+
+        pagel_logs[[length(pagel_logs) + 1]] <- log_num - log_den
+        null_logs <- c(null_logs, lhood_null_i)
+
+        lhood_pagel_i <- exp(ponent) * mean(exp_terms)
     
-    if (length(check_t) != 1){
-      t_i <- drop.tip(t, check_t$tree_not_data)
-      x_i <- x[setdiff(names(x), check_t$data_not_tree)]
-      num_dropped_species <- c(num_dropped_species,
-                               length(check_t$data_not_tree) + length(check_t$tree_not_data))
-      dropped_species[[length(dropped_species)+1]] <- c(check_t$data_not_tree,
-                                                        check_t$tree_not_data)
-    } else {
-      x_i <- x
-      t_i <- t
-      num_dropped_species <- c(num_dropped_species, 0)
-      dropped_species[[length(dropped_species)+1]] <- NULL
+        exponent_list <- c(exponent_list, ponent)
+
+        pagel_samples <- c(pagel_samples, log(lhood_pagel_i))
+        null_samples <- c(null_samples, lhood_null_i)
+        bf_samples <- c(bf_samples, mean(exp_terms)/exp_null)
+        if (return_trace) {
+            ponent <- max(exponent_list)
+
+            num <- mean(sapply(pagel_logs, function(x) mean(exp(x - ponent))))
+            den <- mean(exp(null_logs - ponent))
+            trace <- c(trace, num/den)
+
+            # traces within individual trees, for debugging
+            null_trace[[length(null_trace) + 1]] <- get_trace(null_samples)
+            pagel_trace[[length(pagel_trace) + 1]] <- get_trace(exp(ponent) * 
+                exp_terms)
+        }
     }
-  
-    lhood_func <- function(z) {get_pagel_lhood(z, t_i, x_i)}
-    
-    # compute Laplace approximation to likelihood
-    log_lhood_func <- function(z) {log(lhood_func(z))}
-    
-    lam_0 <- optimise(lhood_func, c(0,1), maximum=T)$maximum
-    
-    logL_2nd_div <- abs(numDeriv::hessian(log_lhood_func, lam_0))
-    
-    lap_approx <- function(z) {dnorm(z, mean=lam_0, sd=1/sqrt(logL_2nd_div))}
-    
-    # sampling
-    if (is.nan(logL_2nd_div) | lam_0 > 0.99 | lam_0 < 0.01 | (!importance_sampling)) {
-      # no maximum in (0,1), use uniform sampling
-      lam_samps <- runif(N_samples)
-      log_num <- c()
-      log_den <- c()
-      for (lam in lam_samps){
-        
-        # log-sum-exp trick to prevent underflow
-        log_num <- c(log_num, log_lhood_func(lam))
-        log_den <- c(log_den, 0) # uniform samples used
-      }
-      sampling_methods <- c(sampling_methods, 'unif')
-      
-    } else {
-      # importance sampling
-      lam_samps <- truncnorm::rtruncnorm(N_samples, a=0, b=1, mean=lam_0,
-                              sd=1/sqrt(logL_2nd_div))
-      
-      log_num <- c()
-      log_den <- c()
-      for (lam in lam_samps){
-        # log-sum-exp trick to prevent underflow
-        log_num <- c(log_num, log(lhood_func(lam)))
-        log_den <- c(log_den, log(lap_approx(lam)))
-      }
-      
-      sampling_methods <- c(sampling_methods, 'imp')
-    }
-    
-    ponent = max(log_num - log_den)
-    exp_terms = exp(log_num - log_den - ponent)
-    
-    lhood_pagel_i <- exp(ponent) * mean(exp_terms)
-    
-    # null likelihood - no dependence on lambda
-    lhood_null_i <- get_pagel_lhood(0, t_i, x_i)
-    
-    pagel_samples <- c(pagel_samples, lhood_pagel_i)
-    null_samples <- c(null_samples, lhood_null_i)
-    
-    bf_samples <- c(bf_samples, lhood_pagel_i/lhood_null_i)
-    
+    ponent <- max(exponent_list)
+
+    num <- mean(sapply(pagel_logs, function(x) mean(exp(x - ponent))))
+    den <- mean(exp(null_logs - ponent))
+
+    bf <- num/den
+
     if (return_trace) {
-      trace <- c(trace,
-                   log_sum_exp_mean(pagel_samples)/log_sum_exp_mean(null_samples))
-      null_trace[[length(null_trace)+1]] <- get_trace(null_samples)
-      pagel_trace[[length(pagel_trace)+1]] <- get_trace(exp(ponent) * exp_terms)
+        return(list(bf = bf, bf_samples = bf_samples, trace = trace, 
+            pagel_trace = pagel_trace, null_trace = null_trace, 
+            samplers = sampling_methods, num_dropped_species = num_dropped_species, 
+            dropped_species = dropped_species, pagel_mls = pagel_samples, 
+            null_mls = null_samples))
     }
-  }
-  
-  # compute Bayes factor
-  num <- log_sum_exp_mean(pagel_samples)
-  den <- log_sum_exp_mean(null_samples)
-  bf <- num/den
-    
-  
-  if (return_trace){
-    return(list("bf"=bf,
-                "bf_samples"=bf_samples,
-                "trace"=trace,
-                "pagel_trace"=pagel_trace,
-                "null_trace"=null_trace,
-                "samplers"=sampling_methods,
-                "num_dropped_species"=num_dropped_species,
-                "dropped_species"=dropped_species,
-                "pagel_mls"=pagel_samples,
-                "null_mls"=null_samples))
-  } else {
-    return(list('bf'=bf,
-                'bf_samples'=bf_samples))
-  }
+    else {
+        return(list(bf = bf, bf_samples = bf_samples))
+    }
 }
 
 
