@@ -35,7 +35,7 @@ bf_file <- "lambda-BF-example-data\\zhang-et-al\\bf_res.rData"
 if (file.exists(bf_file)) {
     load(bf_file)
 } else {
-    bf_res <- lambdaBF(tree, LQ)
+    bf_res <- lambdaBF_prior(tree, LQ)
     save(bf_res, file = bf_file)
 }
 
@@ -49,9 +49,10 @@ bf_file_100 <- "lambda-BF-example-data\\zhang-et-al\\bf_res_100.rData"
 if (file.exists(bf_file_100)) {
     load(bf_file_100)
 } else {
-    bf_100 <- lambdaBF(trees_100, LQ)
+    bf_100 <- lambdaBF_prior(trees_100, LQ)
     save(bf_100, file = bf_file_100)
 }
 
 
 # print summaries
+bf_100$bf_samples

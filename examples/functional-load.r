@@ -26,7 +26,7 @@ trees <- lapply(trees, function(tree) {
 })
             
 # apply lambda-BF to each FL measure in data
-data <- subset(data, select = -c(n_forms, FL_VC))
+data <- subset(data, select = c(FL_Vlength, FL_Cmanner, FL_Cplace))
 
 bf_res_file <- "lambda-BF-example-data/round-et-al/bf_res.rData"
 if (file.exists(bf_res_file)) {
@@ -35,8 +35,7 @@ if (file.exists(bf_res_file)) {
         bf_res <- list()
         for (i in 1:ncol(data)) {
                 print(paste("Computing BF for ", colnames(data)[i]))
-                bf_res[[i]] <- lambdaBF(trees, setNames(data[,i],
-                                                                sapply(langs, function(x) gsub(" ", "_", x))))
+                bf_res[[i]] <- lambdaBF_prior(trees, setNames(data[,i], langs))
         }
 
         save(bf_res, file = bf_res_file)
@@ -47,11 +46,16 @@ print(log10(bf_res[[1]]$bf))
 hist(log10(bf_res[[1]]$bf_samples),
         main = 'FL_Vlength')
 
-print(log10(bf_res[[3]]$bf))
-hist(log(bf_res[[3]]$bf_samples),
+print(log10(bf_res[[2]]$bf))
+hist(log(bf_res[[2]]$bf_samples),
         main ='FL_Cmanner')
 
-print(log10(bf_res[[4]]$bf))
-hist(log10(bf_res[[4]]$bf_samples),
+print(log10(bf_res[[3]]$bf))
+hist(log10(bf_res[[3]]$bf_samples),
         main ='FL_Cplace')
 
+
+i=1
+res <- lambdaBF_prior_debug(trees, setNames(data[,i], langs))
+
+get_marginal_lhood_debug(0, trees[[1]], setNames(data[,i], langs), logarithm = T, a = 1, d = 3)

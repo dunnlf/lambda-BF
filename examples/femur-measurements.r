@@ -28,7 +28,7 @@ if (file.exists(bf_file)) {
     bf_res <- list()
     for (i in 1:ncol(data)) {
         print(paste("Computing BF for ", colnames(data)[i]))
-        bf_res[[i]] <- lambdaBF(trees, setNames(data[,i],
+        bf_res[[i]] <- lambdaBF_prior(trees, setNames(data[,i],
                                 sapply(species, function(x) gsub(" ", "_", x))))
     }
 
