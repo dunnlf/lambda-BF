@@ -2,8 +2,8 @@
 ###
 ### Data from the following are considered:
 ###    - Gônet, J. et al. (2023)
-###    - Zhang, ZN., Lyu, X., Niu, SZ. et al. (2026)
 ###    - Round, E., Dockum, R., Ryder, R. J. (2022)
+###    - Arato, J., Fitch, W. T. (2021)
 ###
 
 
@@ -28,7 +28,7 @@ if (file.exists(bf_file)) {
     bf_res <- list()
     for (i in 1:ncol(data)) {
         print(paste("Computing BF for ", colnames(data)[i]))
-        bf_res[[i]] <- lambdaBF_prior(trees, setNames(data[,i],
+        bf_res[[i]] <- lambdaBF(trees, setNames(data[,i],
                                 sapply(species, function(x) gsub(" ", "_", x))))
     }
 
@@ -38,6 +38,3 @@ if (file.exists(bf_file)) {
 # print bayes factors
 bfs <- sapply(bf_res, function(x) x$bf)
 log10(bfs)
-
-
-

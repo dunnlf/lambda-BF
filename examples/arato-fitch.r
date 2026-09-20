@@ -2,7 +2,6 @@
 ###
 ### Data from the following are considered:
 ###    - Gônet, J. et al. (2023)
-###    - Zhang, ZN., Lyu, X., Niu, SZ. et al. (2026)
 ###    - Round, E., Dockum, R., Ryder, R. J. (2022)
 ###    - Arato, J., Fitch, W. T. (2021)
 ###
@@ -62,7 +61,7 @@ res_pass <- list()
 for (i in seq_along(traits)){
     t <- traits[i]
     trait <- setNames(passerine_song_feat[,t], pass_species)
-    res_i <- lambdaBF_prior(passerine_song_tree, trait,a=3, d=5)
+    res_i <- lambdaBF(passerine_song_tree, trait,a=3, d=5)
     res_pass[[i]] <- res_i
 }
 
@@ -70,7 +69,7 @@ res_nonpass <- list()
 for (i in seq_along(traits)){
     t <- traits[i]
     trait <- setNames(nonpasserine_feat[,t], nonpass_species)
-    res_i <- lambdaBF_prior(nonpasserine_tree, trait,a=3, d=5)
+    res_i <- lambdaBF(nonpasserine_tree, trait,a=3, d=5)
     res_nonpass[[i]] <- res_i
 }
 
@@ -84,31 +83,3 @@ print(log10(bfs_pass))
 
 print("Bayes Factors for Non-Passerine:")
 print(log10(bfs_nonpass))
-
-
-
-
-
-trait <- setNames(passerine_song_feat[,t], pass_species)
-
-z <- (trait-mean(trait))/sd(trait)
-z <- sqrt(vcv.phylo(passerine_song_tree[[1]])[1,1]) * z
-
-C <- vcv.phylo(passerine_song_tree[[1]])
-C_inv <- solve(C)
-
-
-mu <- sum(C_inv %*% z)/sum(C_inv)
-
-as.numeric(t(z-mu) %*% C_inv %*% (z-mu)/length(z))
-
-
-
-sapply(res_pass, function(x) {
-  samples <- log10(x$bf_samples)
-  mean_samples <- mean(samples)
-  margin <- qnorm(0.975) * sd(samples) / sqrt(length(samples))
-  c(mean = mean_samples,
-    lower_95 = mean_samples - margin,
-    upper_95 = mean_samples + margin)
-})

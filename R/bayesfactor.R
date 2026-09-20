@@ -8,16 +8,18 @@
 #' Uses importance sampling to approximate the Bayes factor of Pagel's lambda
 #' (Pagel, 1999), aggregating across trees. Importance sampling used to
 #' marginalise over lambda and makes use of a Laplace approximation to the
-#' likelihood.
+#' likelihood. A normal-inverse-gamma prior is used for the mean and variance of the trait.
+#' 
 #' For some trees, the likelihood may not have a maximum in (0,1), in which case 
 #' the Laplace approximation fails. In this case lambda is sampled uniformly.
 #'  
 #' @param trees phylo object, or list of phylo objects
 #' @param x named vector of observations for each tip
 #' @param N_samples number of importance samples to draw
-#' @param logarithm boolean, whether to return log likelihood.
 #' @param return_trace boolean, whether to return sampling traces.
 #' @param importance_sampling boolean, whether to use importance sampling.
+#' @param a scale parameter for the variance prior.
+#' @param d shape parameter for the variance prior.
 #'
 #' @return list containing Bayes factor estimate 'bf', as well as bayes factors
 #' for each tree in 'bf_samples', optionally contains sampling traces
@@ -30,7 +32,8 @@
 #' 
 #' 
 #' @export
-lambdaBF <- function (trees, x, N_samples = 100, return_trace = F, importance_sampling = T) {
+lambdaBF <-  function (trees, x, N_samples = 100, return_trace = F, importance_sampling = T,
+                        a = 3, d = 5) {
     if (class(trees) == "phylo") {
         trees <- list(tree = trees)
     }
@@ -71,8 +74,14 @@ lambdaBF <- function (trees, x, N_samples = 100, return_trace = F, importance_sa
             dropped_species[[length(dropped_species) + 1]] <- NULL
         }
 
+        if(is.ultrametric(t_i) == FALSE) {
+            warning("Warning: Tree not ultrametric")
+        }
+        tree_age <- as.numeric(diag(vcv.phylo(t_i)))
+        x_i <- sqrt(tree_age) * (x_i - mean(x_i)) / sd(x_i)
+
         log_lhood_func <- function(z) {
-            get_pagel_lhood(z, t_i, x_i, logarithm = T)
+            get_pagel_lhood(z, t_i, x_i, logarithm = T, a = a, d = d)
         }
 
         lam_0 <- optimise(log_lhood_func, c(0, 1), maximum = T)$maximum
@@ -105,7 +114,7 @@ lambdaBF <- function (trees, x, N_samples = 100, return_trace = F, importance_sa
         }
         # apply same exponent trick to numerator and denominator
         # store exponents and logs to apply log-sum-exp to final result also
-        lhood_null_i <- get_pagel_lhood(0, t_i, x_i, logarithm = T)[1]
+        lhood_null_i <- get_pagel_lhood(0, t_i, x_i, logarithm = T, a = a, d = d)
         ponent = max(c(log_num - log_den, lhood_null_i))
 
         exp_terms = exp(log_num - log_den - ponent)
@@ -152,6 +161,7 @@ lambdaBF <- function (trees, x, N_samples = 100, return_trace = F, importance_sa
         return(list(bf = bf, bf_samples = bf_samples))
     }
 }
+
 
 
 #' Compute trace of mean estimate
@@ -224,17 +234,19 @@ get_pagel_cov <- function(lam, tau) {
 }
 
 
-#' Compute pagel likelihood
+#' Compute marginal Pagel likelihood
 #' 
-#' For a given value of lambda, computes the likelihood of the Pagel model
+#' For a given value of lambda, computes the (factor-reduced) marginal likelihood of the Pagel model
+#' when marginalising over a normal-inverse-gamma prior on the mean and variance
 #'  
 #' @param lam scalar value.
 #' @param tau tree object of class 'phylo'.
 #' @param x trait data for tips of tau.
+#' @param a scale parameter for the variance prior.
+#' @param d shape parameter for the variance prior.
 #' @param logarithm boolean, whether to return log likelihood.
 #'
 #' @return scalar value, likelihood of pagel model given lam
-#' 
 #' 
 #' @examples
 #' t <- ape::rtree(10)
@@ -243,27 +255,22 @@ get_pagel_cov <- function(lam, tau) {
 #' 
 #' 
 #' @export
-get_pagel_lhood <- function(lam, tau, x, logarithm=F) {
-  
-  C_lam_tau <- get_pagel_cov(lam, tau)
-  C_inv <- solve(C_lam_tau)
-  n <- nrow(C_inv)
-  
-  # align data with matrix columns
-  x_ <- x[rownames(C_lam_tau)]
-  x_ <- matrix(x_, ncol=1)
-  
-  # estimate mean and variance
-  mu <- as.numeric(sum(C_inv %*% x_)/sum(C_inv))
-  sig2 <- as.numeric(t(x_ - mu) %*% C_inv %*% (x_ - mu)/n)
-  
-  if(logarithm){
-    (-n/2) * log(2 * pi) - (1/2) * determinant(sig2*C_lam_tau, logarithm = T)$modulus - 
-      (1/2) * t(x_ - mu) %*% (C_inv/sig2) %*% (x_ - mu)
-    
-  } else {
-    (2*pi)**(-n/2) * det(sig2 * C_lam_tau)**(-1/2) *
-      exp(-(1/2) * t(x_ - mu) %*% (C_inv/sig2) %*% (x_ - mu))
-    
-  }
+get_pagel_lhood <- function(lam, tau, x, logarithm=F, a, d) {
+    # return factor-reduced marginal likelihood of Pagel's lambda model
+    # facotrs independent of lambda, tau, x are removed
+    # a, d are prior parameters of IG prior on variance
+    # it is assumed that conditional prior of mean is N(0, a/(d-2))
+
+    n <- length(x)
+    C_lam <- get_pagel_cov(lam, tau)
+    C_inv <- solve(C_lam)
+    S <- sum(C_inv)
+
+    x <- x[rownames(C_lam)]
+    if (logarithm) {
+        return(-0.5 * log(1+S) + (-0.5*(d+n))*log(a + t(x)%*%C_inv%*%x - ((sum(C_inv%*%x))**2)/(1+S)))
+    }
+    else {
+    return(sqrt(1/(1+S)) * (a + t(x)%*%C_inv%*%x - ((sum(C_inv%*%x))**2)/(1+S))**(-0.5*(d+n)))
+    }
 }
