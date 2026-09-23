@@ -56,7 +56,10 @@ lambdaBF <-  function (trees, x, N_samples = 100, return_trace = F, importance_s
     pagel_logs <- list()
     null_logs <- c()
 
-    for (t in trees) {
+    ultrametric_warn_flag <- 0
+
+    for (i in seq_along(trees)) {
+        t <- trees[[i]]
         check_t <- geiger::name.check(t, x, data.names = names(x))
         if (length(check_t) != 1) {
             t_i <- drop.tip(t, check_t$tree_not_data)
@@ -74,10 +77,14 @@ lambdaBF <-  function (trees, x, N_samples = 100, return_trace = F, importance_s
             dropped_species[[length(dropped_species) + 1]] <- NULL
         }
 
-        if(is.ultrametric(t_i) == FALSE) {
-            warning("Warning: Tree not ultrametric")
-        }
         tree_age <- as.numeric(diag(vcv.phylo(t_i)))
+
+        if(is.ultrametric(t_i, tol = 1e-6*min(tree_age)) == FALSE & ultrametric_warn_flag == 0){
+            warning("Warning: Tree not ultrametric")
+            ultrametric_warn_flag <- 1
+
+        }
+
         x_i <- sqrt(tree_age) * (x_i - mean(x_i)) / sd(x_i)
 
         log_lhood_func <- function(z) {
@@ -142,6 +149,13 @@ lambdaBF <-  function (trees, x, N_samples = 100, return_trace = F, importance_s
             pagel_trace[[length(pagel_trace) + 1]] <- get_trace(exp(ponent) * 
                 exp_terms)
         }
+
+        # warn of excessive variance in importance sampling, measured relative to mean on log scale
+        if (sd(log_num - log_den)/sqrt(N_samples) > 0.1*abs(mean(log_num - log_den))) {
+            warning(paste("Warning: High variance for tree", 
+                i, " consider increasing importance sampling draws"))
+        }
+
     }
     ponent <- max(exponent_list)
 
@@ -267,10 +281,13 @@ get_pagel_lhood <- function(lam, tau, x, logarithm=F, a, d) {
     S <- sum(C_inv)
 
     x <- x[rownames(C_lam)]
+
+    C_inv_x <- C_inv %*% x
+
     if (logarithm) {
-        return(-0.5 * log(1+S) + (-0.5*(d+n))*log(a + t(x)%*%C_inv%*%x - ((sum(C_inv%*%x))**2)/(1+S)))
+        return(-0.5 * log(1+S) + (-0.5*(d+n))*log(a + t(x)%*%C_inv_x - ((sum(C_inv_x))**2)/(1+S)))
     }
     else {
-    return(sqrt(1/(1+S)) * (a + t(x)%*%C_inv%*%x - ((sum(C_inv%*%x))**2)/(1+S))**(-0.5*(d+n)))
+    return(sqrt(1/(1+S)) * (a + t(x)%*%C_inv_x - ((sum(C_inv_x))**2)/(1+S))**(-0.5*(d+n)))
     }
 }
