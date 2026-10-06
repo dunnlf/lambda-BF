@@ -41,6 +41,11 @@ lambdaBF <-  function (trees, x, N_samples = 100, return_trace = F, importance_s
         warning("Tip data not named, assuming same order as tree tips")
         names(x) <- trees[[1]]$tip.label
     }
+
+    if (length(x) == 1 & is.numeric(x)) {
+        stop("Error: Only one tip in data, Bayes factor not meaningful")
+    }
+
     num_dropped_species <- c()
     dropped_species <- list()
     pagel_samples <- c()
@@ -77,9 +82,9 @@ lambdaBF <-  function (trees, x, N_samples = 100, return_trace = F, importance_s
             dropped_species[[length(dropped_species) + 1]] <- NULL
         }
 
-        tree_age <- as.numeric(diag(vcv.phylo(t_i)))
+        tree_age <- as.numeric(diag(ape::vcv.phylo(t_i)))
 
-        if(is.ultrametric(t_i, tol = 1e-6*min(tree_age)) == FALSE & ultrametric_warn_flag == 0){
+        if(ape::is.ultrametric(t_i, tol = 1e-6*min(tree_age)) == FALSE & ultrametric_warn_flag == 0){
             warning("Warning: Tree not ultrametric")
             ultrametric_warn_flag <- 1
 
@@ -238,11 +243,12 @@ log_sum_exp_mean <- function(x){
 #' @export
 get_pagel_cov <- function(lam, tau) {
   
+  n <- length(tau$tip.label)
   sig_vcv <- ape::vcv.phylo(tau)
   diag_vcv <- diag(sig_vcv)
   
-  sig_lam <- sig_vcv - diag(diag_vcv)
-  out_vcv <- diag(diag_vcv) + lam*sig_lam
+  sig_lam <- sig_vcv - diag(diag_vcv, nrow = n)
+  out_vcv <- diag(diag_vcv, nrow = n) + lam*sig_lam
   
   out_vcv
 }
