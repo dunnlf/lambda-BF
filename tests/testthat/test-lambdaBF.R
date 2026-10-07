@@ -1,3 +1,5 @@
+source("../reference.R")
+
 ### sufficiently small for null data
 test_that("null data gives small Bayes factor", {
   for (seed in 2026:(2026 + 4)) {
@@ -33,5 +35,20 @@ test_that("importance sampling gives similar results to non-importance sampling"
     bf_no_importance <- lambdaBF(tree, x, N_samples = 250, return_trace = F, importance_sampling = F,
                                 a = 3, d = 5)
     expect_equal(log10(bf_importance$bf), log10(bf_no_importance$bf), tolerance=0.005)
+  }
+})
+
+
+### compare with former implementation using slow likelihood
+test_that("new implementation gives similar results to former implementation", {
+  for (seed in 2026:(2026 + 4)) {
+    set.seed(seed)
+    tree <- ape::rcoal(100)
+    x <- phytools::fastBM(tree)
+    bf_new <- lambdaBF(tree, x, N_samples = 250, return_trace = F, importance_sampling = T,
+                      a = 3, d = 5)
+    bf_old <- lambdaBF_old(tree, x, N_samples = 250, return_trace = F, importance_sampling = T,
+                          a = 3, d = 5)
+    expect_equal(log10(bf_new$bf), log10(bf_old$bf), tolerance=0.005)
   }
 })

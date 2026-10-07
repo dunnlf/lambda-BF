@@ -3,3 +3,4 @@
 export(get_pagel_cov)
 export(get_pagel_lhood)
 export(lambdaBF)
+export(get_fast_pagel_lhood)

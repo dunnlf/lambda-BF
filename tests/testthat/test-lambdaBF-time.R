@@ -1,5 +1,5 @@
 ### timing lambdaBF
-
+paste('Running timing...')
 # time runs on 50, 500, 1000 tips, for 10, 50, and 100 samples
 test_that("timing 50 tips", {
   set.seed(2026)

@@ -82,35 +82,76 @@ lambdaBF <-  function (trees, x, N_samples = 100, return_trace = F, importance_s
             dropped_species[[length(dropped_species) + 1]] <- NULL
         }
 
-        tree_age <- as.numeric(diag(ape::vcv.phylo(t_i)))
+        # if tree is ultrametric, use fast likelihood
+        if (ape::is.ultrametric(t_i, tol = 1e-6*min(as.numeric(diag(ape::vcv.phylo(t_i)))))) {
+            use_slow_lhood <- F
+            # precompute eigendecomposition of off-diagonal of vcv.phylo for fast likelihood
+            C_t_i <- get_pagel_cov(1, trees[[i]])
+            tree_age <- ape::vcv.phylo(t_i)[1, 1]
+            omegta_t_i <- (1/tree_age) * (C_t_i - diag(diag(C_t_i), nrow = length(t_i$tip.label)))
+            eig_t_i <- eigen(omegta_t_i)
 
-        if(ape::is.ultrametric(t_i, tol = 1e-6*min(tree_age)) == FALSE & ultrametric_warn_flag == 0){
-            warning("Warning: Tree not ultrametric")
-            ultrametric_warn_flag <- 1
+            x_i <- sqrt(tree_age) * (x_i - mean(x_i)) / sd(x_i)
 
+            z_1_i <- t(eig_t_i$vectors) %*% rep(1, length(t_i$tip.label))
+            z_x_i <- t(eig_t_i$vectors) %*% x_i[rownames(C_t_i)]
         }
+        else {
+            use_slow_lhood <- T
+            if (ultrametric_warn_flag == 0) {
+                warning("Warning: some trees not ultrametric, using slow likelihood in these cases")
+                ultrametric_warn_flag <- 1
+            }
 
-        x_i <- sqrt(tree_age) * (x_i - mean(x_i)) / sd(x_i)
+            tree_age <- as.numeric(diag(ape::vcv.phylo(t_i)))
+            x_i <- sqrt(tree_age) * (x_i - mean(x_i)) / sd(x_i)
+        }
 
         log_lhood_func <- function(z) {
-            get_pagel_lhood(z, t_i, x_i, logarithm = T, a = a, d = d)
+            if (use_slow_lhood | length(tree_age) > 1) {
+                get_pagel_lhood(z, t_i, x_i, logarithm = T, a = a, d = d)
+            }
+            else {
+                get_fast_pagel_lhood(z, z_1_i, z_x_i, eig_t_i$values, tree_age, a = a, d = d, logarithm = T)
+            }
         }
 
-        lam_0 <- optimise(log_lhood_func, c(0, 1), maximum = T)$maximum
-        logL_2nd_div <- abs(numDeriv::hessian(log_lhood_func, 
+        ## forming Laplace approximation
+        # catch numerical errors in optimisation, try falling back to slow lhood
+        tryCatch({
+            lam_0 <- optimise(log_lhood_func, c(0, 1), maximum = T)$maximum
+        }, error = function(e) {
+            warning(paste("Warning: optimisation failed for tree", i, "trying slow likelihood"))
+            use_slow_lhood <- T
+            lam_0 <- optimise(log_lhood_func, c(0, 1), maximum = T)$maximum
+        }, finally = {
+            logL_2nd_div <- abs(numDeriv::hessian(log_lhood_func, 
             lam_0))
-        lap_approx <- function(z) {
-            dnorm(z, mean = lam_0, sd = 1/sqrt(logL_2nd_div))
-        }
+            lap_approx <- function(z) {
+                dnorm(z, mean = lam_0, sd = 1/sqrt(logL_2nd_div))
+            }
+        })
+
+
         if (is.nan(logL_2nd_div) | lam_0 > 0.99 | lam_0 < 0.01 | 
             (!importance_sampling)) {
             lam_samps <- runif(N_samples)
             log_num <- c()
             log_den <- c()
-            for (lam in lam_samps) {
-                log_num <- c(log_num, log_lhood_func(lam))
-                log_den <- c(log_den, 0)
-            }
+            tryCatch(
+                for (lam in lam_samps) {
+                    log_num <- c(log_num, log_lhood_func(lam))
+                    log_den <- c(log_den, 0)
+                },
+                error = function(e) {
+                    warning(paste("Warning: possible numerical error for tree,", i, "trying slow likelihood \n minimum lambda-to-eigenvalue distance = ", min(abs(outer(lam_samps, 1/eig_t_i$values, '+')))))
+                    use_slow_lhood <- T
+                    for (lam in lam_samps) {
+                        log_num <- c(log_num, log_lhood_func(lam))
+                        log_den <- c(log_den, 0)
+                    }
+                }
+            )
             sampling_methods <- c(sampling_methods, "unif")
         }
         else {
@@ -118,10 +159,20 @@ lambdaBF <-  function (trees, x, N_samples = 100, return_trace = F, importance_s
                 b = 1, mean = lam_0, sd = 1/sqrt(logL_2nd_div))
             log_num <- c()
             log_den <- c()
-            for (lam in lam_samps) {
-                log_num <- c(log_num, log_lhood_func(lam))
-                log_den <- c(log_den, log(lap_approx(lam)))
-            }
+            tryCatch(
+                for (lam in lam_samps) {
+                    log_num <- c(log_num, log_lhood_func(lam))
+                    log_den <- c(log_den, log(lap_approx(lam)))
+                },
+                error = function(e) {
+                    warning(paste("Warning: possible numerical error for tree,", i, "trying slow likelihood \n minimum lambda-to-eigenvalue distance = ", min(abs(outer(lam_samps, 1/eig_t_i$values, '+')))))
+                    use_slow_lhood <- T
+                    for (lam in lam_samps) {
+                        log_num <- c(log_num, log_lhood_func(lam))
+                        log_den <- c(log_den, log(lap_approx(lam)))
+                    }
+                }
+            )
             sampling_methods <- c(sampling_methods, "imp")
         }
         # apply same exponent trick to numerator and denominator
@@ -272,10 +323,10 @@ get_pagel_cov <- function(lam, tau) {
 #' t <- ape::rtree(10)
 #' x <- phytools::fastBM(t)
 #' get_pagel_lhood(1, t, x)
-#' 
+#'
 #' 
 #' @export
-get_pagel_lhood <- function(lam, tau, x, logarithm=F, a, d) {
+get_pagel_lhood <- function(lam, tau, x, a, d, logarithm=F) {
     # return factor-reduced marginal likelihood of Pagel's lambda model
     # facotrs independent of lambda, tau, x are removed
     # a, d are prior parameters of IG prior on variance
@@ -295,5 +346,60 @@ get_pagel_lhood <- function(lam, tau, x, logarithm=F, a, d) {
     }
     else {
     return(sqrt(1/(1+S)) * (a + t(x)%*%C_inv_x - ((sum(C_inv_x))**2)/(1+S))**(-0.5*(d+n)))
+    }
+}
+
+
+
+#' Fast marginal Pagel likelihood
+#' 
+#' For a given value of lambda, computes the (factor-reduced) marginal likelihood of the Pagel model
+#' when marginalising over a normal-inverse-gamma prior on the mean and variance
+#' uses a fast method based on diagonalising the matrix of off-diagonals and using 9.1.3 of Golub and Van Loan (2013)
+#' accepts precomputed products between the eigenvectors and the data
+#' only valid for ultrametric trees, and may be numerically unstable for some trees
+#'  
+#' @param lam scalar value.
+#' @param z_1 product of eigenvectors of off-diagonal of vcv.phylo and vector of ones
+#' @param z_x product of eigenvectors of off-diagonal of vcv.phylo and vector of data
+#' @param v eigenvalues of off-diagonal of vcv.phylo
+#' @param T_age tree age
+#' @param a scale parameter for the variance prior.
+#' @param d shape parameter for the variance prior.
+#' @param logarithm boolean, whether to return log likelihood.
+#'
+#' @return scalar value, likelihood of pagel model given lam
+#' 
+#' @examples
+#' t <- ape::rcoal(10)
+#' T_age <- vcv.phylo(t)[1,1]
+#' omega_t <- (1/T_age)*get_pagel_cov(1, t) - diag(diag(get_pagel_cov(1, t)), nrow = 10)
+#' eig <- eigen(omega_t)
+#' x <- phytools::fastBM(t)
+#' z_1 <- t(eig$vectors) %*% rep(1, 10)
+#' z_x <- t(eig$vectors) %*% x
+#' get_fast_pagel_lhood(1, z_1, z_x, eig$values, T_age, 3, 5, logarithm = T)
+#' 
+#' 
+#' @export
+get_fast_pagel_lhood <- function(lam, z_1, z_x, v, T_age,  a, d, logarithm=F) {
+
+    n <- length(z_x)
+    if (min(abs(v + 1/lam)) < 1e-6){
+        warning("Warning: lambda = " + lam + " has numerical instability for this tree, using slow likelihood")
+        return(NULL)
+    }
+
+    v_lam <- 1/(1 + lam*v)
+
+    S <- (1/T_age) * sum(v_lam * z_1^2)
+    S_1_x <- (1/T_age) * sum(v_lam * z_1 * z_x)
+    S_x_x <- (1/T_age) * sum(v_lam * z_x^2)
+
+    if (logarithm) {
+        return(-0.5 * log(1+S) + (-0.5*(d+n))*log(a + S_x_x - (S_1_x)**2/(1+S)))
+    }
+    else {
+    return(sqrt(1/(1+S)) * (a + S_x_x - ((S_1_x)**2)/(1+S))**(-0.5*(d+n)))
     }
 }
