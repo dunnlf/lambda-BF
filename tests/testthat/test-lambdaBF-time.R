@@ -1,12 +1,12 @@
 ### timing lambdaBF
 source("../reference.R")
 
-paste('Running timing...')
+cat('Running timing...\n')
 # time runs on 50, 500, 1000 tips, for 10, 50, and 100 samples
 test_that("timing 50 tips", {
   set.seed(2026)
   tree <- ape::rcoal(50)
-  cat("50 tips, 15 draws \n")
+  cat("50 tips, 30 draws \n")
   for (n_samples in c(10, 50, 100)) {
     times_50 <- replicate(30, {
       x <- phytools::fastBM(tree)
@@ -23,7 +23,7 @@ test_that("timing 50 tips", {
 test_that("timing 250 tips", {
   set.seed(2026)
   tree <- ape::rcoal(250)
-  cat("250 tips, 15 draws \n")
+  cat("250 tips, 30 draws \n")
   for (n_samples in c(10, 50, 100)) {
     times_50 <- replicate(30, {
       x <- phytools::fastBM(tree)
@@ -56,13 +56,12 @@ test_that("timing 500 tips", {
 })
 
 
-
-paste('Running timing on old implementation...')
+cat('Running timing on old implementation...\n')
 # time runs on 50, 500, 1000 tips, for 10, 50, and 100 samples
 test_that("timing 50 tips old", {
   set.seed(2026)
   tree <- ape::rcoal(50)
-  cat("50 tips, 15 draws \n")
+  cat("50 tips, 30 draws \n")
   for (n_samples in c(10, 50, 100)) {
     times_50 <- replicate(30, {
       x <- phytools::fastBM(tree)
@@ -79,7 +78,7 @@ test_that("timing 50 tips old", {
 test_that("timing 250 tips old", {
   set.seed(2026)
   tree <- ape::rcoal(250)
-  cat("250 tips, 15 draws \n")
+  cat("250 tips, 30 draws \n")
   for (n_samples in c(10, 50, 100)) {
     times_50 <- replicate(30, {
       x <- phytools::fastBM(tree)
