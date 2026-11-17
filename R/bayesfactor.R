@@ -386,7 +386,7 @@ get_fast_pagel_lhood <- function(lam, z_1, z_x, v, T_age,  a, d, logarithm=F) {
 
     n <- length(z_x)
     if (min(abs(v + 1/lam)) < 1e-6){
-        warning("Warning: lambda = " + lam + " has numerical instability for this tree, using slow likelihood")
+        warning(cat("Warning: lambda = ", lam, " has numerical instability for this tree, using slow likelihood"))
         return(NULL)
     }
 
